@@ -29,12 +29,12 @@ on:
       projectname:
         description: 'Project Name : Name of the project (same as for the LZ)'
         required: true
-        default: ''
+        default: 'LeoTestingGitProject'
         type: string
       projectcode:
         description: 'Project Code : Code of the project (usually 4 characters)'
         required: true
-        default: ''
+        default: 'LPS1'
         type: string
       region:
         description: 'Region : Azure Region of the project'
