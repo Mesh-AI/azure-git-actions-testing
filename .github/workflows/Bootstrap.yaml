@@ -2,8 +2,8 @@
 #   /!\ Important Notice /!\
 #╚═════════════════════════════╝
 
-# Workflow Goal > Manually launched on your newly created project's repository, to configure repository's parameters and create the first Azure ressources needed for the infra-as-code runs
-
+# LEO: Workflow Goal > Manually launched on your newly created project's repository, to configure repository's parameters and create the first Azure ressources needed for the infra-as-code runs
+# LEO: ADD COMMENTS HERE
 
 # Before running this workflow, you may need to initialize your project's SPN Builder, launching the "PreBootstrap" script:
 
