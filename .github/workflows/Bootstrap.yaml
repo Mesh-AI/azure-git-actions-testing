@@ -152,42 +152,42 @@ jobs:
 # -> Updates blob properties of the storage account
 # -> Creates a blob container inside the storage account
 
-  init-azure:
-    name: Initialize Azure resources
-    runs-on: ubuntu-latest
-    needs: create-repo
-    steps:
-      - name: Checkout Working Directory
-        uses: actions/checkout@v3
+#  init-azure:
+#    name: Initialize Azure resources
+#    runs-on: ubuntu-latest
+#    needs: create-repo
+#    steps:
+#      - name: Checkout Working Directory
+#        uses: actions/checkout@v3
 
-      - name: Login with Azure CLI
-        uses: azure/login@v1
-        with:
-          client-id: ${{ vars.SPN_APP_ID }}
-          tenant-id: ${{ vars.TENANT_ID }}
-          subscription-id: ${{ vars.SUBSCRIPTION_ID }}
+#      - name: Login with Azure CLI
+#        uses: azure/login@v1
+#        with:
+#          client-id: ${{ vars.SPN_APP_ID }}
+#          tenant-id: ${{ vars.TENANT_ID }}
+#          subscription-id: ${{ vars.SUBSCRIPTION_ID }}
 
-      - name: Activate Encryption at Host feature
-        run: |
-          az feature register --name EncryptionAtHost  --namespace Microsoft.Compute  
+#      - name: Activate Encryption at Host feature
+#        run: |
+#          az feature register --name EncryptionAtHost  --namespace Microsoft.Compute  
 
-      - name: Accept Azure Marketplace Terms for CIS Windows 2019 VM Image
-        run: |
-          az vm image terms accept --urn center-for-internet-security-inc:cis-windows-server-2019-v1-0-0-l1:cis-ws2019-l1:latest
+#      - name: Accept Azure Marketplace Terms for CIS Windows 2019 VM Image
+#        run: |
+#          az vm image terms accept --urn center-for-internet-security-inc:cis-windows-server-2019-v1-0-0-l1:cis-ws2019-l1:latest
 
-      - name: Deploy Azure Resources
-        run: |
-          if [ $(az group exists -n rg-iasp-m-${{ env.REGION_CODE }}-${{ env.PROJECT_CODE }}-01) = false ]; then
-            # Creation of storage account and container which will contains the tfsate file of each terraform environment of the application
-              az group create -n $RG_NAME -l ${{ env.REGION }}
-              az storage account create -n $SA_NAME -g $RG_NAME -l ${{ env.REGION }} --sku Standard_RAGRS --kind StorageV2 --allow-blob-public-access false --min-tls-version TLS1_2
-              az storage account blob-service-properties update --account-name $SA_NAME -g $RG_NAME --enable-delete-retention true --delete-retention-days 7 --container-retention true --container-days 7 --enable-versioning true
-              az storage container create -n $CT_NAME --account-name $SA_NAME --auth-mode login
-          fi
-        env:
-          RG_NAME: azrmrg${{ env.PROJECT_CODE }}01
-          SA_NAME: azrmst${{ env.PROJECT_CODE }}01
-          CT_NAME: azrmct${{ env.PROJECT_CODE }}01
+#      - name: Deploy Azure Resources
+#        run: |
+#          if [ $(az group exists -n rg-iasp-m-${{ env.REGION_CODE }}-${{ env.PROJECT_CODE }}-01) = false ]; then
+#            # Creation of storage account and container which will contains the tfsate file of each terraform environment of the application
+#              az group create -n $RG_NAME -l ${{ env.REGION }}
+#              az storage account create -n $SA_NAME -g $RG_NAME -l ${{ env.REGION }} --sku Standard_RAGRS --kind StorageV2 --allow-blob-public-access false --min-tls-version TLS1_2
+#              az storage account blob-service-properties update --account-name $SA_NAME -g $RG_NAME --enable-delete-retention true --delete-retention-days 7 --container-retention true --container-days 7 --enable-versioning true
+#              az storage container create -n $CT_NAME --account-name $SA_NAME --auth-mode login
+#          fi
+#        env:
+#          RG_NAME: azrmrg${{ env.PROJECT_CODE }}01
+#          SA_NAME: azrmst${{ env.PROJECT_CODE }}01
+#          CT_NAME: azrmct${{ env.PROJECT_CODE }}01
 
 #╔═══════════════════════════════════╗
 #   App Registration Initialization
@@ -196,24 +196,24 @@ jobs:
 # What does this job do :
 # -> Creates an App Registration for the applicative part if needed
 
-  create-sp:
-    name: Create App Registration
-    runs-on: ubuntu-latest
-    needs: init-azure
-    if: ${{ github.event.inputs.appregistration  == 'true' }}
-    steps:
-      - name: Checkout Working Directory
-        uses: actions/checkout@v3
+#  create-sp:
+#    name: Create App Registration
+#    runs-on: ubuntu-latest
+#    needs: init-azure
+#    if: ${{ github.event.inputs.appregistration  == 'true' }}
+#    steps:
+#      - name: Checkout Working Directory
+#        uses: actions/checkout@v3
 
-      - name: Login with Azure CLI
-        uses: azure/login@v1
-        with:
-          client-id: ${{ vars.SPN_APP_ID }}
-          tenant-id: ${{ vars.TENANT_ID }}
-          subscription-id: ${{ vars.SUBSCRIPTION_ID }}
+#      - name: Login with Azure CLI
+#        uses: azure/login@v1
+#        with:
+#          client-id: ${{ vars.SPN_APP_ID }}
+#          tenant-id: ${{ vars.TENANT_ID }}
+#          subscription-id: ${{ vars.SUBSCRIPTION_ID }}
 
-      - name: Create App Registration with Mr. Robot
-        shell: pwsh
-        run: |
-          cd .github/scripts/
-          ./create_app_registration.ps1 -envCode ${{ env.APP_REGISTRATION_ENV }} -lzName ${{ env.PROJECT_NAME }} -emailContact ${{ env.APP_REGISTRATION_EMAIL }} -nameSuffix ${{ env.APP_REGISTRATION_SUFFIX }}
+#      - name: Create App Registration with Mr. Robot
+#        shell: pwsh
+#        run: |
+#          cd .github/scripts/
+#          ./create_app_registration.ps1 -envCode ${{ env.APP_REGISTRATION_ENV }} -lzName ${{ env.PROJECT_NAME }} -emailContact ${{ env.APP_REGISTRATION_EMAIL }} -nameSuffix ${{ env.APP_REGISTRATION_SUFFIX }}
