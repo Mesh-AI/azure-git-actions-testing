@@ -1,0 +1,219 @@
+#╔═════════════════════════════╗
+#   /!\ Important Notice /!\
+#╚═════════════════════════════╝
+
+# Workflow Goal > Manually launched on your newly created project's repository, to configure repository's parameters and create the first Azure ressources needed for the infra-as-code runs
+
+
+# Before running this workflow, you may need to initialize your project's SPN Builder, launching the "PreBootstrap" script:
+
+# - Prerequisites:
+#   - Have the Azure CLI installed : https://learn.microsoft.com/en-us/cli/azure/install-azure-cli
+#   - Have the GitHub CLI installed : https://cli.github.com/manual/installation
+# - Launch the "PreBootstrap" script:
+#   - Download or copy the PowerShell script named "PreBootstrap.ps1" from your newly created GitHub repository, located under ".github/scripts/PreBootstrap.ps1"
+#   - Launch the script locally and enter the project's name as it appears in the name of the Landing Zone (Example : CCCDevOps if your Landing Zone is named "sub-iasp-lz-CCCDevOps")
+#   - Follow the login instructions and authenticate with your AJ/AL account and the MFA process (Your AJ/AL account has to be one of the owners defined at the creation of the Landing Zone)
+#   - Follow the GitHub login instructions, go on https://github.com/login/device and enter the provided code, ensure you're authenticating using your TotalEnergiesCode account (ALxxxxxxx_totalen)
+
+
+#╔════════════════════════════╗
+#   GLOBAL WORKFLOW SETTINGS
+#╚════════════════════════════╝
+
+name: '💡 Bootstrap'
+
+on:
+  workflow_dispatch:
+    inputs:
+      projectname:
+        description: 'Project Name : Name of the project (same as for the LZ)'
+        required: true
+        default: ''
+        type: string
+      projectcode:
+        description: 'Project Code : Code of the project (usually 4 characters)'
+        required: true
+        default: ''
+        type: string
+      region:
+        description: 'Region : Azure Region of the project'
+        required: true
+        default: 'westeurope'
+        type: choice
+        options:
+        - westeurope
+        - northeurope
+      regioncode:
+        description: 'Region Code : Azure Region Code of the project'
+        required: true
+        default: 'euw'
+        type: choice
+        options:
+        - euw
+        - eun
+      appregistration:
+        description: 'App Registration : Does your project needs an App Registration for the applicative part ?'
+        required: false
+        default: 'false'
+        type: boolean
+      appregistrationenv:
+        description: 'App Registration Env : What will be the environment letter linked to this needed App Registration ?'
+        required: false
+        default: ''
+        type: choice
+        options:
+        - t
+        - d
+        - q
+        - i
+        - s
+        - p
+      appregistrationsuffix:
+        description: 'App Registration Suffix : Optional Suffix used in the name of the created App Registration'
+        required: false
+        default: ''
+        type: string
+      appregistrationemail:
+        description: 'App Registration Email : Contact Email for the created App Registration, needs to be a @totalenergies.com email'
+        required: false
+        default: 'firstname.lastname@totalenergies.com'
+        type: string
+
+env:
+  PROJECT_NAME: ${{ github.event.inputs.projectname }}
+  PROJECT_CODE: ${{ github.event.inputs.projectcode }}
+  REGION: ${{ github.event.inputs.region }}
+  REGION_CODE: ${{ github.event.inputs.regioncode }}
+  APP_REGISTRATION: ${{ github.event.inputs.appregistration }}
+  APP_REGISTRATION_ENV: ${{ github.event.inputs.appregistrationenv }}
+  APP_REGISTRATION_SUFFIX: ${{ github.event.inputs.appregistrationsuffix }}
+  APP_REGISTRATION_EMAIL: ${{ github.event.inputs.appregistrationemail }}
+
+defaults:
+  run:
+    shell: bash
+
+#╔═════════════════════════╗
+#   GitHub Initialization
+#╚═════════════════════════╝
+
+# What does this job do :
+# -> Adds more ENV variables
+# -> Adds a branch protection rule on main
+# -> Creates the needed repository secrets
+
+jobs:
+  create-repo:
+    name: Create Project Repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Adding More ENV Variables
+        id: addenvvariables
+        run: |
+          PROJECT_NAME_LOWER=$(echo ${{ env.PROJECT_NAME }} | tr '[:upper:]' '[:lower:]')
+          PROJECT_CODE_LOWER=$(echo ${{ env.PROJECT_CODE }} | tr '[:upper:]' '[:lower:]')
+          REGION_CODE_LOWER=$(echo ${{ env.REGION_CODE }} | tr '[:upper:]' '[:lower:]')
+
+          echo "PROJECT_NAME_LOWER=$PROJECT_NAME_LOWER" >> $GITHUB_ENV
+          echo "PROJECT_CODE_LOWER=$PROJECT_CODE_LOWER" >> $GITHUB_ENV
+          echo "REGION_CODE_LOWER=$REGION_CODE_LOWER" >> $GITHUB_ENV
+
+      - name: Adding a branch protection rule on main
+        id: addbranchprotection
+        run: |
+          curl \
+            -X PUT \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GH_SERVICE_ACCOUNT_PAT }}" \
+            https://api.github.com/repos/${{ github.repository }}/branches/main/protection \
+            -d '{"required_status_checks":null,"enforce_admins":null,"required_pull_request_reviews":{"required_approving_review_count":1},"restrictions":null}'
+
+      - name: Creating the repository secrets
+        id: createsecrets
+        run: |
+          gh secret set PROJECT_NAME -R ${{ github.repository }} -b "${{ env.PROJECT_NAME_LOWER }}"
+          gh secret set PROJECT_CODE -R ${{ github.repository }} -b "${{ env.PROJECT_CODE_LOWER }}"
+          gh secret set REGION_CODE -R ${{ github.repository }} -b "${{ env.REGION_CODE_LOWER }}"
+        env:
+          GH_TOKEN: ${{ secrets.GH_SERVICE_ACCOUNT_PAT }}
+
+#╔════════════════════════╗
+#   Azure Initialization
+#╚════════════════════════╝
+
+# What does this job do :
+# -> Activates EncryptionAtHost feature on the subscription
+# -> Creates the "mutualized" resource group
+# -> Creates a storage account to store the .tfstate files of the project
+# -> Updates blob properties of the storage account
+# -> Creates a blob container inside the storage account
+
+  init-azure:
+    name: Initialize Azure resources
+    runs-on: ubuntu-latest
+    needs: create-repo
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Login with Azure CLI
+        uses: azure/login@v1
+        with:
+          client-id: ${{ vars.SPN_APP_ID }}
+          tenant-id: ${{ vars.TENANT_ID }}
+          subscription-id: ${{ vars.SUBSCRIPTION_ID }}
+
+      - name: Activate Encryption at Host feature
+        run: |
+          az feature register --name EncryptionAtHost  --namespace Microsoft.Compute  
+
+      - name: Accept Azure Marketplace Terms for CIS Windows 2019 VM Image
+        run: |
+          az vm image terms accept --urn center-for-internet-security-inc:cis-windows-server-2019-v1-0-0-l1:cis-ws2019-l1:latest
+
+      - name: Deploy Azure Resources
+        run: |
+          if [ $(az group exists -n rg-iasp-m-${{ env.REGION_CODE }}-${{ env.PROJECT_CODE }}-01) = false ]; then
+            # Creation of storage account and container which will contains the tfsate file of each terraform environment of the application
+              az group create -n $RG_NAME -l ${{ env.REGION }}
+              az storage account create -n $SA_NAME -g $RG_NAME -l ${{ env.REGION }} --sku Standard_RAGRS --kind StorageV2 --allow-blob-public-access false --min-tls-version TLS1_2
+              az storage account blob-service-properties update --account-name $SA_NAME -g $RG_NAME --enable-delete-retention true --delete-retention-days 7 --container-retention true --container-days 7 --enable-versioning true
+              az storage container create -n $CT_NAME --account-name $SA_NAME --auth-mode login
+          fi
+        env:
+          RG_NAME: azrmrg${{ env.PROJECT_CODE }}01
+          SA_NAME: azrmst${{ env.PROJECT_CODE }}01
+          CT_NAME: azrmct${{ env.PROJECT_CODE }}01
+
+#╔═══════════════════════════════════╗
+#   App Registration Initialization
+#╚═══════════════════════════════════╝
+
+# What does this job do :
+# -> Creates an App Registration for the applicative part if needed
+
+  create-sp:
+    name: Create App Registration
+    runs-on: ubuntu-latest
+    needs: init-azure
+    if: ${{ github.event.inputs.appregistration  == 'true' }}
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Login with Azure CLI
+        uses: azure/login@v1
+        with:
+          client-id: ${{ vars.SPN_APP_ID }}
+          tenant-id: ${{ vars.TENANT_ID }}
+          subscription-id: ${{ vars.SUBSCRIPTION_ID }}
+
+      - name: Create App Registration with Mr. Robot
+        shell: pwsh
+        run: |
+          cd .github/scripts/
+          ./create_app_registration.ps1 -envCode ${{ env.APP_REGISTRATION_ENV }} -lzName ${{ env.PROJECT_NAME }} -emailContact ${{ env.APP_REGISTRATION_EMAIL }} -nameSuffix ${{ env.APP_REGISTRATION_SUFFIX }}
