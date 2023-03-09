@@ -73,13 +73,6 @@ jobs:
         with:
           creds: '{"clientId":"${{ vars.SPN_APP_ID }}","clientSecret":"${{ secrets.SPN_SECRET }}","subscriptionId":"${{ vars.SUBSCRIPTION_ID }}","tenantId":"${{ vars.TENANT_ID }}"}'
 
-#      - name: Open Resources FW
-#        id: open-fw
-#        uses: TotalEnergiesCode/azr-sysops-devops-action-firewall@v1
-#        with:
-#          ACTION: OpenOneIp
-#          StorageAccount: true
-
       - name: Terraform Apply
         uses: ./.github/actions/apply
         with:
