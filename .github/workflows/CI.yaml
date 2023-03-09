@@ -1,0 +1,268 @@
+#╔════════════════════════════╗
+#   GLOBAL WORKFLOW SETTINGS
+#╚════════════════════════════╝
+
+name: '🛠️ CI'
+
+on:
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - 'project/IaC/**'
+      - '.github/workflows/environments.json'
+
+env:
+  TERRAFORM_VERSION: 1.1.6
+  WORKING_DIRECTORY: project/IaC
+
+permissions:
+  actions: write # This is required to read/write workflows, workflow runs and artifacts.
+  contents: write # This is required for actions/checkout and to read/write repository contents, commits, branches, downloads, releases, and merges.
+  id-token: write # This is required for requesting the JWT for OIDC.
+  pull-requests: write # This is required to read/write pull requests and related comments, assignees, labels, milestones, and merges.
+  security-events: write # This is required for the Checkov composite action to upload report to the GitHub Advanced Security tab
+
+defaults:
+  run:
+    shell: bash
+    working-directory: project/IaC
+
+#╔════════════════════════════════════╗
+#   GENERATE THE ENVIRONMENTS MATRIX
+#╚════════════════════════════════════╝
+
+jobs:
+  generate-matrix:
+    name: Generate Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.generate-matrix.outputs.environments }}
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Generate Matrix
+        id: generate-matrix
+        run: |
+          ENVIRONMENTS=$(echo $(cat ../../.github/workflows/environments.json) | sed 's/ //g' )
+          echo The list of environments to deploy is $ENVIRONMENTS
+          echo "environments=$ENVIRONMENTS" >> $GITHUB_OUTPUT
+
+#╔═══════════════════════════════════════════════════════════════════════╗
+#   TERRAFORM INIT, VALIDATE AND PLAN, FMT, CONFTEST, CHECKOV AND SARIF
+#╚═══════════════════════════════════════════════════════════════════════╝
+
+  terraform-plan-checks:
+    name: Terraform Plan and Checks
+    runs-on: ubuntu-latest
+    needs: generate-matrix
+    strategy:
+      matrix:
+        environment: ${{ fromJSON(needs.generate-matrix.outputs.environments) }}
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Login with Azure CLI
+        id: azure-login
+        uses: azure/login@v1
+        with:
+          creds: '{"clientId":"${{ vars.SPN_APP_ID }}","clientSecret":"${{ secrets.SPN_SECRET }}","subscriptionId":"${{ vars.SUBSCRIPTION_ID }}","tenantId":"${{ vars.TENANT_ID }}"}'
+
+      - name: Open Resources FW
+        id: open-fw
+        uses: TotalEnergiesCode/azr-sysops-devops-action-firewall@v1
+        with:
+          ACTION: OpenOneIp
+          StorageAccount: true
+
+      - name: Terraform Init, Validate and Plan
+        id: terraform-init-validate-plan
+        uses: ./.github/actions/plan
+        with:
+          WORKING_DIRECTORY: ${{ env.WORKING_DIRECTORY }}
+          UNIVERSAL_GH_APP_ID_CODE: ${{ secrets.UNIVERSAL_GH_APP_ID_CODE }}
+          UNIVERSAL_GH_APP_PRIVATE_KEY_CODE: ${{ secrets.UNIVERSAL_GH_APP_PRIVATE_KEY_CODE }}
+          TERRAFORM_VERSION: ${{ env.TERRAFORM_VERSION }}
+          ENVIRONMENT: ${{ matrix.environment }}
+          PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+          PROJECT_CODE: ${{ vars.PROJECT_CODE }}
+          REGION_CODE: ${{ vars.REGION_CODE }}
+          SPN_APP_ID: ${{ vars.SPN_APP_ID }}
+          SPN_SECRET: ${{ secrets.SPN_SECRET }}
+          TENANT_ID: ${{ vars.TENANT_ID }}
+          SUBSCRIPTION_ID: ${{ vars.SUBSCRIPTION_ID }}
+
+      - name: Terraform fmt
+        id: terraform-fmt
+        run: terraform fmt -recursive -check -diff
+
+        continue-on-error: true
+
+      - name: Conftest - Configuration Check
+        id: conftest
+        uses: ./.github/actions/conftest
+        with:
+          WORKING_DIRECTORY: ${{ env.WORKING_DIRECTORY }}
+          ENVIRONMENT: ${{ matrix.environment }}
+          PAT_INOX_CODE: ${{ secrets.PAT_INOX_CODE }}
+
+        continue-on-error: true
+
+      - name: Checkov - Security Check and Report in Security Tab
+        id: checkov
+        uses: ./.github/actions/checkov
+        with:
+          WORKING_DIRECTORY: ${{ env.WORKING_DIRECTORY }}
+          ENVIRONMENT: ${{ matrix.environment }}
+
+        continue-on-error: true
+
+      - name: Close Resources FW
+        id: close-fw
+        uses: TotalEnergiesCode/azr-sysops-devops-action-firewall@v1
+        if: always()
+        with:
+          ACTION: CloseOneIp
+          StorageAccount: true
+
+#╔═══════════════════════╗
+#   OPEN A PULL REQUEST
+#╚═══════════════════════╝
+
+  open-pull-request:
+    name: Open Pull Request
+    runs-on: ubuntu-latest
+    needs:
+      - generate-matrix
+      - terraform-plan-checks
+    outputs:
+      prnumber: ${{ steps.listpr.outputs.prnumber }}
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Opening Pull Request
+        id: openpr
+        run: |
+          curl \
+            -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -d '{"title":"${{ github.event.head_commit.message }}","body":":sparkles: Automatically created Pull Request :sparkles:","head":"${{ github.ref_name }}","base":"main"}'
+
+      - name: Listing Pull Requests
+        id: listpr
+        run: |
+          RESPONSE=$(curl \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/pulls)
+          PRNUMBERPART=$(echo "$RESPONSE" | grep -o '"number": [0-9]\+')
+          PRNUMBER=$(echo "$PRNUMBERPART" | grep -o '[0-9]\+')
+          echo "The PR Number is : $PRNUMBER"
+          echo "prnumber=$PRNUMBER" >> $GITHUB_OUTPUT
+
+#╔═════════════════════════════════════════════════════╗
+#   COMMENT THE PULL REQUEST WITH THE TERRAFORM PLANS
+#╚═════════════════════════════════════════════════════╝
+
+  comment-pull-request-plan:
+    name: Comment PR - Terraform Plans
+    needs:
+      - generate-matrix
+      - terraform-plan-checks
+      - open-pull-request
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: ${{ fromJSON(needs.generate-matrix.outputs.environments) }}
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Download the Environment Terraform Plan Artifact (txt)
+        uses: actions/download-artifact@v3
+        with:
+          name: tfplan-${{ matrix.environment }}.txt
+          path: ${{ env.WORKING_DIRECTORY }}
+
+      - name: Adding Terraform Plan comment to PR
+        id: tfplancommentpr
+        run: |
+          echo '{ "body": "## :scroll: Here is the Terraform Plan for ${{ matrix.environment }} environment, please check it out carefully :scroll:\n\n
+          '$(cat tfplan-${{ matrix.environment }}.txt | sed 's/$/\\n/g' | tr -d '\n' | tr \" \' | sed 's/+/\\\\+/g' | sed 's/-/\\\\-/g'  | sed 's/*/\\\\*/g'  | sed 's/\ \ /\&emsp;/g')'"}' > comment.txt
+          curl \
+            -X POST \
+            https://api.github.com/repos/${{ github.repository }}/issues/${{needs.open-pull-request.outputs.prnumber}}/comments \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -d @comment.txt
+
+#╔═══════════════════════════════════════════════════════╗
+#   GENERATE THE INFRACOST SUMMARY FOR EACH ENVIRONMENT
+#╚═══════════════════════════════════════════════════════╝
+
+  generate-environments-infracost:
+    name: Generate Infracost
+    needs:
+      - generate-matrix
+      - terraform-plan-checks
+      - open-pull-request
+      - comment-pull-request-plan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environments: ${{ fromJSON(needs.generate-matrix.outputs.environments) }}
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Generate Environment Infracost
+        id: infracost
+        uses: ./.github/actions/infracost
+        with:
+          WORKING_DIRECTORY: ${{ env.WORKING_DIRECTORY }}
+          TERRAFORM_VERSION: ${{ env.TERRAFORM_VERSION }}
+          ENVIRONMENT: ${{ matrix.environments }}
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+
+#╔═══════════════════════════════════════════════════════╗
+#   COMMENT THE PULL REQUEST WITH THE INFRACOST SUMMARY
+#╚═══════════════════════════════════════════════════════╝
+
+  comment-pull-request-infracost:
+    name: Comment PR - Infracost
+    needs:
+      - generate-matrix
+      - terraform-plan-checks
+      - open-pull-request
+      - comment-pull-request-plan
+      - generate-environments-infracost
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Download all the Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ${{ env.WORKING_DIRECTORY }}
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v2
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+          currency: 'EUR'
+
+      - name: Generate Global Infracost JSON
+        run: infracost output --path "infracost-*.json/infracost-*.json" --format json --out-file infracost.json
+
+      - name: Post Global Infracost comment in PR
+        run: infracost comment github --path=infracost.json
+          --repo=${{ github.repository }}
+          --github-token=${{ secrets.GITHUB_TOKEN }}
+          --pull-request=${{needs.open-pull-request.outputs.prnumber}}
+          --behavior=delete-and-new

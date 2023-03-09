@@ -1,0 +1,29 @@
+name: 'Checkov - Configuration Check'
+description: 'Checkov - Configuration Check'
+
+inputs:
+  WORKING_DIRECTORY:
+    description: 'Working Directory'
+    required: true
+  ENVIRONMENT:
+    description: 'Environment to be checked'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Scan the Terraform Plan with Checkov
+      uses: bridgecrewio/checkov-action@v12
+      with:
+        file: ${{ inputs.WORKING_DIRECTORY }}/tfplan-${{ inputs.ENVIRONMENT }}.json
+        soft_fail: true
+        framework: terraform_plan
+        output_format: sarif
+        output_file_path: ${{ inputs.WORKING_DIRECTORY }}/results.sarif
+
+    - name: Upload results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: ${{ inputs.WORKING_DIRECTORY }}/results.sarif
+
+# To Be Added : Upload of the alerts or Checkov summary link to Teams

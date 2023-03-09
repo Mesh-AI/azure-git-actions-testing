@@ -1,0 +1,135 @@
+#╔════════════════════════════╗
+#   GLOBAL WORKFLOW SETTINGS
+#╚════════════════════════════╝
+
+name: '🚀 CD'
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'project/IaC/**'
+      - '.github/workflows/environments.json'
+
+env:
+  TERRAFORM_VERSION: 1.1.6
+  WORKING_DIRECTORY: project/IaC
+
+permissions:
+  actions: write # This is required to read/write workflows, workflow runs and artifacts.
+  contents: write # This is required for actions/checkout and to read/write repository contents, commits, branches, downloads, releases, and merges.
+  id-token: write # This is required for requesting the JWT for OIDC.
+  pull-requests: write # This is required to read/write pull requests and related comments, assignees, labels, milestones, and merges.
+  security-events: write # This is required for the Checkov composite action to upload report to the GitHub Advanced Security tab
+
+defaults:
+  run:
+    shell: bash
+    working-directory: project/IaC
+
+#╔════════════════════════════════════╗
+#   GENERATE THE ENVIRONMENTS MATRIX
+#╚════════════════════════════════════╝
+
+jobs:
+  generate-matrix:
+    name: Generate Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.generate-matrix.outputs.environments }}
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Generate Matrix
+        id: generate-matrix
+        run: |
+          ENVIRONMENTS=$(echo $(cat ../../.github/workflows/environments.json) | sed 's/ //g' )
+          echo The list of environments to deploy is $ENVIRONMENTS
+          echo "environments=$ENVIRONMENTS" >> $GITHUB_OUTPUT
+
+#╔══════════════════════════════════╗
+#   TERRAFORM APPLY
+#╚══════════════════════════════════╝
+
+  terraform-apply:
+    name: Terraform Apply
+    needs: generate-matrix
+    if: ${{ always() && contains(needs.*.result, 'success') && !(contains(needs.*.result, 'failure')) }}
+    strategy:
+      max-parallel: 1
+      matrix:
+        environment: ${{ fromJSON(needs.generate-matrix.outputs.environments) }}
+    runs-on: ubuntu-latest
+    # environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Login with Azure CLI
+        id: azure-login
+        uses: azure/login@v1
+        with:
+          creds: '{"clientId":"${{ vars.SPN_APP_ID }}","clientSecret":"${{ secrets.SPN_SECRET }}","subscriptionId":"${{ vars.SUBSCRIPTION_ID }}","tenantId":"${{ vars.TENANT_ID }}"}'
+
+      - name: Open Resources FW
+        id: open-fw
+        uses: TotalEnergiesCode/azr-sysops-devops-action-firewall@v1
+        with:
+          ACTION: OpenOneIp
+          StorageAccount: true
+
+      - name: Terraform Apply
+        uses: ./.github/actions/apply
+        with:
+          WORKING_DIRECTORY: ${{ env.WORKING_DIRECTORY }}
+          UNIVERSAL_GH_APP_ID_CODE: ${{ secrets.UNIVERSAL_GH_APP_ID_CODE }}
+          UNIVERSAL_GH_APP_PRIVATE_KEY_CODE: ${{ secrets.UNIVERSAL_GH_APP_PRIVATE_KEY_CODE }}
+          TERRAFORM_VERSION: ${{ env.TERRAFORM_VERSION }}
+          ENVIRONMENT: ${{ matrix.environment }}
+          PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+          PROJECT_CODE: ${{ vars.PROJECT_CODE }}
+          REGION_CODE: ${{ vars.REGION_CODE }}
+          SPN_APP_ID: ${{ vars.SPN_APP_ID }}
+          SPN_SECRET: ${{ secrets.SPN_SECRET }}
+          TENANT_ID: ${{ vars.TENANT_ID }}
+          SUBSCRIPTION_ID: ${{ vars.SUBSCRIPTION_ID }}
+
+      - name: Close Resources FW
+        id: close-fw
+        uses: TotalEnergiesCode/azr-sysops-devops-action-firewall@v1
+        if: always()
+        with:
+          ACTION: CloseOneIp
+          StorageAccount: true
+
+#╔═════════════════════════╗
+#   CREATE GITHUB RELEASE
+#╚═════════════════════════╝
+  github-release:
+    name: Create GitHub Release
+    needs:
+      - terraform-apply
+    if: ${{ always() && contains(needs.*.result, 'success') && !(contains(needs.*.result, 'failure')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Working Directory
+        uses: actions/checkout@v3
+
+      - name: Bump version and push tag
+        id: create_tag
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          release_branches: main
+          default_bump: patch
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: steps.create_tag.outputs.new_version
+        with:
+          tag_name: ${{ steps.create_tag.outputs.new_tag }}
+          name: Release ${{ steps.create_tag.outputs.new_tag }}
+          body: ${{ steps.create_tag.outputs.changelog }}
+          token: ${{ secrets.GITHUB_TOKEN }}

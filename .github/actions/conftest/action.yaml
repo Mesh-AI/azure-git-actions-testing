@@ -1,0 +1,47 @@
+name: 'Conftest - Configuration Check'
+description: 'Conftest - Configuration Check'
+
+inputs:
+  WORKING_DIRECTORY:
+    description: 'Working Directory'
+    required: true
+  ENVIRONMENT:
+    description: 'Environment concerned by the Conftest check'
+    required: true
+  PAT_INOX_CODE:
+    description: 'Personal Access Token to access Innersourcing repository'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Conftest
+      run: |
+        wget https://github.com/open-policy-agent/conftest/releases/download/v0.26.0/conftest_0.26.0_Linux_x86_64.tar.gz
+        tar xzf conftest_0.26.0_Linux_x86_64.tar.gz
+        sudo mv conftest /usr/local/bin
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}
+
+    - name: Get the policies from Innersourcing
+      run: |
+        mkdir -p policy
+        chmod 777 policy
+        rm -rf cicd_conftest
+        git clone https://PersonalAccessToken:${{ inputs.PAT_INOX_CODE }}@dev.azure.com/INOX-code/Innersourcing/_git/cicd_conftest -b main
+        ls -al cicd_conftest
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}
+
+    - name: Copy policies to the default policy folder
+      run: |
+        mv cicd_conftest/INOX@SCALE/* policy
+        ls -al policy
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}
+
+    - name: Run Conftest
+      run: |
+        conftest test -p policy tfplan-${{ inputs.ENVIRONMENT }}.json --all-namespaces -o table
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}

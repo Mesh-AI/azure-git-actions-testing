@@ -1,0 +1,45 @@
+name: 'Generate Environment Infracost'
+description: 'Generate Environment Infracost'
+
+inputs:
+  WORKING_DIRECTORY:
+    description: 'Working Directory'
+    required: true
+  TERRAFORM_VERSION:
+    description: 'Version of Terraform used'
+    required: true
+  ENVIRONMENT:
+    description: 'Environment to deploy infrastructure on'
+    required: true
+  INFRACOST_API_KEY:
+    description: 'The Infracost API Key'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Working Directory
+      uses: actions/checkout@v3
+
+    - name: Download the Environment Terraform Plan Artifact (JSON)
+      uses: actions/download-artifact@v3
+      with:
+        name: tfplan-${{ inputs.ENVIRONMENT }}.json
+        path: ${{ inputs.WORKING_DIRECTORY }}
+
+    - name: Setup Infracost
+      uses: infracost/actions/setup@v2
+      with:
+        api-key: ${{ inputs.INFRACOST_API_KEY }}
+        currency: 'EUR'
+
+    - name: Generate Environment Infracost JSON
+      run: infracost breakdown --path tfplan-${{ inputs.ENVIRONMENT }}.json --format json --out-file infracost-${{ inputs.ENVIRONMENT }}.json
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}
+
+    - name: Upload Environment Infracost Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: infracost-${{ inputs.ENVIRONMENT }}.json
+        path: ./${{ inputs.WORKING_DIRECTORY }}/infracost-${{ inputs.ENVIRONMENT }}.json

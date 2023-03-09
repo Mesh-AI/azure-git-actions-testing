@@ -1,0 +1,130 @@
+name: 'Terraform Init, Validate and Plan'
+description: 'Terraform Init, Validate and Plan'
+
+inputs:
+  WORKING_DIRECTORY:
+    description: 'Working Directory'
+    required: true
+  UNIVERSAL_GH_APP_ID_CODE:
+    description: 'Application ID of the TotalEnergiesCode Organization Reader GitHub App'
+    required: true
+  UNIVERSAL_GH_APP_PRIVATE_KEY_CODE:
+    description: 'Private Key of the TotalEnergiesCode Organization Reader GitHub App'
+    required: true
+  TERRAFORM_VERSION:
+    description: 'Version of Terraform used'
+    required: true
+  ENVIRONMENT:
+    description: 'Environment to deploy infrastructure on'
+    required: true
+  PROJECT_NAME:
+    description: 'The name designing the project'
+    required: true
+  PROJECT_CODE:
+    description: 'Usually a 4 letter code designing the project'
+    required: true
+  REGION_CODE:
+    description: 'Azure Region Code of the project'
+    required: true
+  SPN_APP_ID:
+    description: 'The Application ID of the SPN Builder'
+    required: true
+  SPN_SECRET:
+    description: 'The Secret of the SPN Builder'
+    required: true
+  TENANT_ID:
+    description: 'The Tenant ID'
+    required: true
+  SUBSCRIPTION_ID:
+    description: 'The Subscription ID of the project'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Working Directory
+      uses: actions/checkout@v3
+
+    - name: Generate token for the TotalEnergiesCode Organization Reader GitHub App
+      id: generate-tecode-token
+      uses: getsentry/action-github-app-token@v2.0.0
+      with:
+          app_id: ${{ inputs.UNIVERSAL_GH_APP_ID_CODE }}
+          private_key: ${{ inputs.UNIVERSAL_GH_APP_PRIVATE_KEY_CODE }}
+
+    - name: Init the connection to TotalEnergiesCode GitHub Organization to use the Terraform modules
+      run: |
+        git config --global credential.helper store
+        echo 'https://GitHubAppTECode:${{ env.UNIVERSAL_GH_APP_TOKEN_CODE }}@github.com' >> ~/.git-credentials
+      env:
+        UNIVERSAL_GH_APP_TOKEN_CODE: ${{ steps.generate-tecode-token.outputs.token }}
+      shell: bash
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ inputs.TERRAFORM_VERSION }}
+        terraform_wrapper: false
+
+    - name: Terraform Init
+      id: init
+      run: terraform init
+        -var-file=../global.tfvars
+        -var-file=../environments/${{ inputs.ENVIRONMENT }}.tfvars
+        -backend-config="resource_group_name=azrmrg${{ inputs.PROJECT_CODE }}01"
+        -backend-config="storage_account_name=azrmst${{ inputs.PROJECT_CODE }}01"
+        -backend-config="container_name=azrmct${{ inputs.PROJECT_CODE }}01"
+        -backend-config="key=infra_${{ inputs.PROJECT_NAME }}_${{ inputs.ENVIRONMENT }}.tfstate"
+      env:
+        ARM_CLIENT_ID: ${{ inputs.SPN_APP_ID }}
+        ARM_CLIENT_SECRET: ${{ inputs.SPN_SECRET }}
+        ARM_SUBSCRIPTION_ID: ${{ inputs.SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ inputs.TENANT_ID }}
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}
+
+    - name: Terraform Plan
+      id: plan
+      run: terraform plan
+        -var-file=../global.tfvars
+        -var-file=../environments/${{ inputs.ENVIRONMENT }}.tfvars
+        -input=false
+        -out=tfplan-${{ inputs.ENVIRONMENT }}.out
+        -no-color | tee tfplan-${{ inputs.ENVIRONMENT }}.txt
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}
+      env:
+        ARM_CLIENT_ID: ${{ inputs.SPN_APP_ID }}
+        ARM_CLIENT_SECRET: ${{ inputs.SPN_SECRET }}
+        ARM_SUBSCRIPTION_ID: ${{ inputs.SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ inputs.TENANT_ID }}
+
+    - name: Terraform Show
+      id: show
+      run: terraform show
+        -json tfplan-${{ inputs.ENVIRONMENT }}.out | jq '.' > tfplan-${{ inputs.ENVIRONMENT }}.json
+      shell: bash
+      working-directory: ${{ inputs.WORKING_DIRECTORY }}
+      env:
+        ARM_CLIENT_ID: ${{ inputs.SPN_APP_ID }}
+        ARM_CLIENT_SECRET: ${{ inputs.SPN_SECRET }}
+        ARM_SUBSCRIPTION_ID: ${{ inputs.SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ inputs.TENANT_ID }}
+
+    - name: Upload Text Plan Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: tfplan-${{ inputs.ENVIRONMENT }}.txt
+        path: ./${{ inputs.WORKING_DIRECTORY }}/tfplan-${{ inputs.ENVIRONMENT }}.txt
+
+    - name: Upload JSON Plan Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: tfplan-${{ inputs.ENVIRONMENT }}.json
+        path: ./${{ inputs.WORKING_DIRECTORY }}/tfplan-${{ inputs.ENVIRONMENT }}.json
