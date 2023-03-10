@@ -96,13 +96,14 @@ jobs:
           TENANT_ID: ${{ vars.TENANT_ID }}
           SUBSCRIPTION_ID: ${{ vars.SUBSCRIPTION_ID }}
 
-      - name: Close Resources FW
-        id: close-fw
-        uses: TotalEnergiesCode/azr-sysops-devops-action-firewall@v1
-        if: always()
-        with:
-          ACTION: CloseOneIp
-          StorageAccount: true
+# Enable at Inox@Scale
+#      - name: Close Resources FW
+#        id: close-fw
+#        uses: TotalEnergiesCode/azr-sysops-devops-action-firewall@v1
+#        if: always()
+#        with:
+#          ACTION: CloseOneIp
+#          StorageAccount: true
 
 #╔═════════════════════════╗
 #   CREATE GITHUB RELEASE
