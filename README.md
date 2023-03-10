@@ -21,4 +21,5 @@ Please do not add anything else to this repo, this is a temporary one before mig
 ### Other Notes
 
 * CI is enabled for main branch in this repo for testing purposes. Please roll back later for PRs only
+* Added a workflow dispatch for CD in order to force run tests
  
