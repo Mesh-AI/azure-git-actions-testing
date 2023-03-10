@@ -13,3 +13,8 @@ Folders structure
     - environments.json > Which environments you want to run
 
  - project > Terraform modules you want to deploy and specific variables
+ 
+ Azure Resources created manually to store .tfvars (delete later)
+ - azrmrglps101 - Resource Group
+ - azrmstlps101 - Storage Account
+ 
