@@ -3,7 +3,7 @@
 #╚════════════════════╝
 
 # Project Azure Tenant ID information
-tenant_id = "329e91b0-e21f-48fb-a071-456717ecc28e"  # ----> Change for Inox@Scale / MeshAI tentant ids
+tenant_id = "5fc6af6d-d4ee-4bce-8234-62ea2ed40628"  # ----> Change for Inox@Scale this is the Mesh AI one
 
 # Project Azure Platform information
 platform_code = "iasp"
