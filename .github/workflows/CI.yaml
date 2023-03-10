@@ -6,7 +6,7 @@ name: '🛠️ CI'
 
 on:
   push:
-    branches:
+    branches-ignore:
       - main
     paths:
       - 'project/IaC/**'
