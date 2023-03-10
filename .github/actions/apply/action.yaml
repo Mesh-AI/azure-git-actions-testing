@@ -40,25 +40,25 @@ inputs:
     required: true
 
 runs:
-  using: "composite"
-  steps:
-    - name: Checkout Working Directory
-      uses: actions/checkout@v3
+#  using: "composite"
+#  steps:
+ #   - name: Checkout Working Directory
+ #     uses: actions/checkout@v3
 
-    - name: Generate token for the TotalEnergiesCode Organization Reader GitHub App
-      id: generate-tecode-token
-      uses: getsentry/action-github-app-token@v2.0.0
-      with:
-          app_id: ${{ inputs.UNIVERSAL_GH_APP_ID_CODE }}
-          private_key: ${{ inputs.UNIVERSAL_GH_APP_PRIVATE_KEY_CODE }}
+#    - name: Generate token for the TotalEnergiesCode Organization Reader GitHub App
+#      id: generate-tecode-token
+#      uses: getsentry/action-github-app-token@v2.0.0
+#      with:
+##          app_id: ${{ inputs.UNIVERSAL_GH_APP_ID_CODE }}
+#          private_key: ${{ inputs.UNIVERSAL_GH_APP_PRIVATE_KEY_CODE }}#
 
-    - name: Init the connection to TotalEnergiesCode GitHub Organization to use the Terraform modules
-      run: |
-        git config --global credential.helper store
-        echo 'https://GitHubAppTECode:${{ env.UNIVERSAL_GH_APP_TOKEN_CODE }}@github.com' >> ~/.git-credentials
-      env:
-        UNIVERSAL_GH_APP_TOKEN_CODE: ${{ steps.generate-tecode-token.outputs.token }}
-      shell: bash
+#    - name: Init the connection to TotalEnergiesCode GitHub Organization to use the Terraform modules
+#      run: |
+#        git config --global credential.helper store
+#        echo 'https://GitHubAppTECode:${{ env.UNIVERSAL_GH_APP_TOKEN_CODE }}@github.com' >> ~/.git-credentials
+#      env:
+#        UNIVERSAL_GH_APP_TOKEN_CODE: ${{ steps.generate-tecode-token.outputs.token }}
+#      shell: bash
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
