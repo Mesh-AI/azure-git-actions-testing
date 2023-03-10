@@ -5,7 +5,7 @@
 variable "tenant_id" {
   description = "ID of the Azure Tenant used"
   type        = string
-  default     = "329e91b0-e21f-48fb-a071-456717ecc28e"
+  default     = "5fc6af6d-d4ee-4bce-8234-62ea2ed40628"
 }
 
 variable "platform_code" {
